@@ -1,0 +1,15 @@
+{
+	"fixed": {
+		"file_version": "0.1.0"
+	},
+	"info": {
+		"0000": {
+			"ProductVersion": "0.1.0",
+			"CompanyName": "韵家口大队",
+			"FileDescription": "韵家口大队辖区公路桩号转经纬度离线演示",
+			"LegalCopyright": "(c) 2026 韵家口大队",
+			"ProductName": "青海高速桩号定位",
+			"Comments": "G6 与 S101 辖区路段定位工具"
+		}
+	}
+}

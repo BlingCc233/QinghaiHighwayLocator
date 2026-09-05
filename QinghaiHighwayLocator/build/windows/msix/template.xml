@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<MsixPackagingToolTemplate
+    xmlns="http://schemas.microsoft.com/msix/packaging/msixpackagingtool/template/2022">
+    <Settings
+        AllowTelemetry="false"
+        ApplyACLsToPackageFiles="true"
+        GenerateCommandLineFile="true"
+        AllowPromptForPassword="false">
+    </Settings>
+    <Installer
+        Path="qinghaihighwaylocator.exe"
+        Arguments=""
+        InstallLocation="C:\Program Files\韵家口大队\青海高速桩号定位">
+    </Installer>
+    <PackageInformation
+        PackageName="青海高速桩号定位"
+        PackageDisplayName="青海高速桩号定位"
+        PublisherName="CN=韵家口大队"
+        PublisherDisplayName="韵家口大队"
+        Version="0.1.0.0"
+        PackageDescription="韵家口大队辖区公路桩号转经纬度离线演示">
+        <Capabilities>
+            <Capability Name="runFullTrust" />
+            
+        </Capabilities>
+        <Applications>
+            <Application
+                Id="cn.qinghai.yunjakou.stationlocator"
+                Description="韵家口大队辖区公路桩号转经纬度离线演示"
+                DisplayName="青海高速桩号定位"
+                ExecutableName="qinghaihighwaylocator.exe"
+                EntryPoint="Windows.FullTrustApplication">
+                
+            </Application>
+        </Applications>
+        <Resources>
+            <Resource Language="zh-CN" />
+        </Resources>
+        <Dependencies>
+            <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+        </Dependencies>
+        <Properties>
+            <Framework>false</Framework>
+            <DisplayName>青海高速桩号定位</DisplayName>
+            <PublisherDisplayName>韵家口大队</PublisherDisplayName>
+            <Description>韵家口大队辖区公路桩号转经纬度离线演示</Description>
+            <Logo>Assets\AppIcon.png</Logo>
+        </Properties>
+    </PackageInformation>
+    <SaveLocation PackagePath="qinghaihighwaylocator.msix" />
+    <PackageIntegrity>
+        <CertificatePath></CertificatePath>
+    </PackageIntegrity>
+</MsixPackagingToolTemplate>

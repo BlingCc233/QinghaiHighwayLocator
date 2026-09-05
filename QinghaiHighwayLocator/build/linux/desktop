@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=青海高速桩号定位
+Comment=韵家口大队辖区公路桩号转经纬度离线演示
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/qinghaihighwaylocator %u
+Terminal=false
+Type=Application
+Icon=qinghaihighwaylocator
+Categories=Utility;
+StartupWMClass=qinghaihighwaylocator
+
+ 
