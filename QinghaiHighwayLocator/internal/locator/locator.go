@@ -25,6 +25,7 @@ type routeData struct {
 	Brigade     string
 	Code        string
 	Name        string
+	NetworkRefs []string
 	StartMeter  int
 	EndMeter    int
 	Points      []point
@@ -361,9 +362,17 @@ func NetworkHealthReport() NetworkHealth {
 }
 
 func routeMainlines(route string) []roadGeometry {
+	return routeMainlinesForRefs(route, nil)
+}
+
+func routeMainlinesForRoute(route routeData) []roadGeometry {
+	return routeMainlinesForRefs(route.Code, route.NetworkRefs)
+}
+
+func routeMainlinesForRefs(route string, refs []string) []roadGeometry {
 	mainlines := make([]roadGeometry, 0, 64)
 	for _, road := range embeddedRoadNetwork {
-		if roadKind(road, route) == "main" {
+		if roadKindForRefs(road, route, refs) == "main" {
 			mainlines = append(mainlines, road)
 		}
 	}
@@ -381,15 +390,40 @@ func nearestRoadDistance(target point, roads []roadGeometry) float64 {
 }
 
 func roadKind(road roadGeometry, route string) string {
+	return roadKindForRefs(road, route, nil)
+}
+
+func roadKindForRefs(road roadGeometry, route string, refs []string) string {
 	if road.Highway == "motorway_link" {
 		return "ramp"
 	}
 	for _, ref := range strings.Split(strings.ToUpper(road.Ref), ";") {
-		if strings.TrimSpace(ref) == route {
+		if routeRefMatchesAny(route, ref, refs) {
 			return "main"
 		}
 	}
 	return "context"
+}
+
+func routeRefMatches(route, ref string) bool {
+	return routeRefMatchesAny(route, ref, nil)
+}
+
+func routeRefMatchesAny(route, ref string, refs []string) bool {
+	route = strings.TrimSpace(strings.ToUpper(route))
+	ref = strings.TrimSpace(strings.ToUpper(ref))
+	for _, networkRef := range refs {
+		if ref == strings.TrimSpace(strings.ToUpper(networkRef)) {
+			return true
+		}
+	}
+	if route == ref {
+		return true
+	}
+	// OSM does not consistently retain the administrative S104 number on
+	// this corridor. The Xining-Huangzhong alignment is tagged S1113 and
+	// named 宁贵高速, which is the public geometry used for S104 here.
+	return route == "S104" && ref == "S1113"
 }
 
 func roadKindPriority(kind string) int {
@@ -454,6 +488,9 @@ func routeByCodeAndMeter(code string, meter int) (routeData, bool) {
 	}
 	for _, definition := range segmentDefinitions {
 		if definition.Code == code && meter >= definition.StartMeter && meter <= definition.EndMeter {
+			if route, ok := networkRouteForDefinition(definition); ok {
+				return route, true
+			}
 			return routeFromDefinition(definition), true
 		}
 	}
@@ -473,6 +510,9 @@ func routeByID(id string) (routeData, bool) {
 			route.EndMeter = definition.EndMeter
 			return route, true
 		}
+	}
+	if route, ok := networkRouteForDefinition(definition); ok {
+		return route, true
 	}
 	return routeFromDefinition(definition), true
 }

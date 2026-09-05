@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -28,13 +29,27 @@ type osmResponse struct {
 }
 
 func main() {
-	input, err := os.ReadFile("data/osm-xining-highways-2026-09-05.json")
-	if err != nil {
-		panic(err)
+	files := []string{
+		"data/osm-xining-highways-2026-09-05.json",
+		"data/osm-route-corridors-2026-09-05.json",
+		"data/osm-route-relations-full-2026-09-05.json",
+		"data/osm-s104-corridor-classes-2026-09-05.json",
 	}
-	var response osmResponse
-	if err := json.Unmarshal(input, &response); err != nil {
-		panic(err)
+	ways := make(map[int64]osmWay)
+	for _, file := range files {
+		input, err := os.ReadFile(file)
+		if err != nil {
+			panic(err)
+		}
+		var response osmResponse
+		if err := json.Unmarshal(input, &response); err != nil {
+			panic(err)
+		}
+		for _, way := range response.Elements {
+			if way.Type == "way" {
+				ways[way.ID] = way
+			}
+		}
 	}
 
 	var out strings.Builder
@@ -42,7 +57,13 @@ func main() {
 	out.WriteString("// Source: OpenStreetMap public highway geometries, downloaded 2026-09-04/09-05.\n")
 	out.WriteString("package locator\n\nvar embeddedRoadNetwork = []roadGeometry{\n")
 	count := 0
-	for _, way := range response.Elements {
+	ids := make([]int64, 0, len(ways))
+	for id := range ways {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	for _, id := range ids {
+		way := ways[id]
 		if way.Type != "way" || len(way.Geometry) < 2 {
 			continue
 		}

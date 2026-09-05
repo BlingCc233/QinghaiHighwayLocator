@@ -409,7 +409,7 @@ type ovjsnSignPic struct {
 
 func marshalOVJSN(id uint32, name, comment string, result Result) ([]byte, error) {
 	now := time.Now().Format("2006/01/02 15:04:05")
-	doc := ovjsnDocument{Version: "V10.6.2", Type: 1, ObjItems: []ovjsnObject{{Type: 7, ObjID: id, ParentID: 1, TMModify: now, Object: ovjsnPoint{Name: name, Type: 7, Comment: comment, ObjectDetail: ovjsnDetail{Lat: result.Latitude, Lng: result.Longitude, Gcj02: 0, Altitude: 0, EditMode: 0, TxtType: 1, ShowLevel: 1, Time: now, SignPic: ovjsnSignPic{SignPic: 4}}}}}}
+	doc := ovjsnDocument{Version: "V10.6.2", Type: 1, ObjItems: []ovjsnObject{{Type: 7, ObjID: id, ParentID: 1, TMModify: now, Object: ovjsnPoint{Name: name, Type: 7, Comment: comment, ObjectDetail: ovjsnDetail{Lat: result.Latitude, Lng: result.Longitude, Gcj02: 0, Altitude: 0, EditMode: 1, TxtType: 1, ShowLevel: 1, Time: now, SignPic: ovjsnSignPic{SignPic: 4}}}}}}
 	return json.MarshalIndent(doc, "", "  ")
 }
 

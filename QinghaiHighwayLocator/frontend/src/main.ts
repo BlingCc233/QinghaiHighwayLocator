@@ -82,9 +82,20 @@ function selectedSegment(): RouteSegment | undefined {
   return routeCatalog.find((item) => item.id === routeSelect.value) ?? routeCatalog[0];
 }
 
+function applySegmentDefaults(segment = selectedSegment()) {
+  if (!segment) return;
+  // Batch import accepts whole kilometres. Round inward so generated
+  // stations stay inside the selected segment's exact metre range.
+  rangeStart.value = String(Math.ceil(segment.startMeter / 1000));
+  rangeEnd.value = String(Math.floor(segment.endMeter / 1000));
+}
+
 function renderRouteSegments() {
   const items = routeCatalog.filter((item) => item.brigade === brigadeSelect.value);
+  const current = routeSelect.value;
   routeSelect.innerHTML = items.map((item) => "<option value=\"" + item.id + "\">" + item.code + " · " + item.segmentName + " · " + item.start + "-" + item.end + "</option>").join("");
+  if (items.some((item) => item.id === current)) routeSelect.value = current;
+  applySegmentDefaults();
 }
 
 function renderRouteCatalog(items: RouteSegment[]) {
@@ -109,6 +120,7 @@ function setRouteAndStation(value: string, route?: string) {
       brigadeSelect.value = match.brigade;
       renderRouteSegments();
       routeSelect.value = match.id;
+      applySegmentDefaults(match);
     }
   }
   input.value = station;
@@ -151,13 +163,14 @@ async function exportOmap() {
   exportStatus.textContent = "正在备份并写入奥维 data，请保持奥维完全关闭。";
   try {
     if (assetType.value === "桩号") {
-      if (pickedAttachments.length) { exportStatus.textContent = "批量桩号不接收附件，请切换到单点类型。"; return; }
       if (!rangeStart.value.trim() || !rangeEnd.value.trim()) { exportStatus.textContent = "请输入批量起止公里。"; rangeStart.focus(); return; }
       const segment = selectedSegment();
       if (!segment) { exportStatus.textContent = "请选择辖区路段。"; return; }
       const result = await omapService.ExportOmapRange({ route: segment.code, brigade: segment.brigade, segmentId: segment.id, startStation: rangeStart.value.trim(), endStation: rangeEnd.value.trim(), outputDirectory: omapDataDirectory });
       const skippedText = result.skipped ? `，覆盖外跳过 ${result.skipped} 个` : "";
       exportStatus.textContent = `已写入 ${result.targetFolder}，${result.written} 个整公里点（${result.firstStation} - ${result.lastStation}）${skippedText}。现在打开奥维即可查看。`;
+      pickedAttachments.splice(0, pickedAttachments.length);
+      renderAttachments();
     } else {
       const segment = selectedSegment();
       if (!segment) { exportStatus.textContent = "请选择辖区路段。"; return; }
@@ -166,6 +179,8 @@ async function exportOmap() {
         ? `，附件 ${result.attachmentQty} 个${result.attachmentQty > 1 ? "（已打包为一个奥维附件）" : ""}`
         : "";
       exportStatus.textContent = `已写入 ${result.targetFolder}，对象 #${result.objectId}${attachmentText}。现在打开奥维即可查看。`;
+      pickedAttachments.splice(0, pickedAttachments.length);
+      renderAttachments();
     }
     showToast("已写入奥维收藏夹");
   } catch (error) {
@@ -178,6 +193,6 @@ async function exportOmap() {
 }
 function toggleNetworkDrawer(force?: boolean) { const drawer = document.querySelector("#network-drawer")!; const status = document.querySelector<HTMLButtonElement>("#network-status")!; const open = force ?? !drawer.classList.contains("is-open"); drawer.classList.toggle("is-open", open); status.setAttribute("aria-expanded", String(open)); }
 brigadeSelect.addEventListener("change", () => { renderRouteSegments(); const segment = selectedSegment(); if (segment) input.value = segment.start; void locate(); });
-routeSelect.addEventListener("change", () => { const segment = selectedSegment(); if (segment) input.value = segment.start; void locate(); });
+routeSelect.addEventListener("change", () => { const segment = selectedSegment(); if (segment) { input.value = segment.start; applySegmentDefaults(segment); } void locate(); });
 routeCatalogReady = omapService.GetRouteCatalog().then((items) => { renderRouteCatalog(items); renderCoverage(items as unknown as Coverage[]); });
 form.addEventListener("submit", (event) => { event.preventDefault(); void locate(); }); document.querySelectorAll<HTMLButtonElement>(".quick-stations button").forEach((button) => button.addEventListener("click", () => { setRouteAndStation(button.dataset.station ?? "", button.dataset.route); void locate(); })); document.querySelectorAll<HTMLButtonElement>(".copy-button").forEach((button) => button.addEventListener("click", async () => { const value = document.querySelector<HTMLElement>(`#${button.dataset.copy}`)?.textContent ?? ""; if (!value || value === "--") return; try { await navigator.clipboard.writeText(value); showToast("坐标已复制"); } catch { showToast("复制失败"); } })); document.querySelector("#zoom-in")!.addEventListener("click", () => zoom(1)); document.querySelector("#zoom-out")!.addEventListener("click", () => zoom(-1)); document.querySelector("#recenter")!.addEventListener("click", () => { if (activeScene) { rangeM = activeScene.rangeM; drawMap(); } }); document.querySelector("#reference-toggle")!.addEventListener("click", () => document.querySelector(".coordinate-dock")!.classList.toggle("show-reference")); document.querySelector("#network-status")!.addEventListener("click", () => toggleNetworkDrawer()); document.querySelector("#drawer-close")!.addEventListener("click", () => toggleNetworkDrawer(false)); document.querySelector("#pick-attachments")!.addEventListener("click", () => void pickAttachments()); pickOmapDataButton.addEventListener("click", async () => { try { const directory = await omapService.PickOmapDataDirectory(); if (directory) { omapDataDirectory = directory; localStorage.setItem("qinghai-omap-data-directory", directory); exportDirectory.textContent = `已选择：${directory}`; showToast("已选择奥维 data 目录"); } } catch (error) { showToast(error instanceof Error ? error.message : String(error)); } }); assetType.addEventListener("change", updateAssetMode); attachmentDrop.addEventListener("click", (event) => { if ((event.target as HTMLElement).closest("button")) return; void pickAttachments(); }); attachmentDrop.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); void pickAttachments(); } }); ["dragenter", "dragover"].forEach((eventName) => attachmentDrop.addEventListener(eventName, (event) => { event.preventDefault(); attachmentDrop.classList.add("is-dragging"); })); ["dragleave", "drop"].forEach((eventName) => attachmentDrop.addEventListener(eventName, (event) => { event.preventDefault(); attachmentDrop.classList.remove("is-dragging"); })); attachmentDrop.addEventListener("drop", (event) => { const files = [...(event as DragEvent).dataTransfer?.files ?? []]; for (const file of files) { const path = (file as File & { path?: string }).path; if (path && !pickedAttachments.includes(path)) pickedAttachments.push(path); } renderAttachments(); }); exportButton.addEventListener("click", () => void exportOmap()); window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawMap); window.addEventListener("resize", drawMap); void LocatorService.GetCoverage().then(renderCoverage).catch(() => { document.querySelector("#coverage-list")!.textContent = "辖区路线加载失败"; }); void LocatorService.GetNetworkHealth().then(renderNetworkHealth).catch(() => { document.querySelector("#network-health-summary")!.textContent = "审计读取失败"; }); void omapService.GetOmapExportDirectory().then((directory) => { if (!omapDataDirectory) { omapDataDirectory = directory; localStorage.setItem("qinghai-omap-data-directory", directory); } exportDirectory.textContent = `已选择：${omapDataDirectory}`; }).catch(() => { exportDirectory.textContent = omapDataDirectory || "请选择奥维 data 文件夹"; }); updateAssetMode(); void locate();
