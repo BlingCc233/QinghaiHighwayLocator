@@ -43,6 +43,7 @@ const (
 // must be the installed OMAP data directory, not an export directory.
 type ImportInput struct {
 	DataDirectory string
+	Brigade       string
 	AssetType     string
 	Name          string
 	Latitude      float64
@@ -184,8 +185,12 @@ func importUnverified(input ImportInput) (ImportResult, error) {
 	if err == nil {
 		root, err = ensureFolder(tx, root, "西宁高速支队", now)
 	}
+	brigade := strings.TrimSpace(input.Brigade)
+	if brigade == "" {
+		brigade = "韵家口大队"
+	}
 	if err == nil {
-		root, err = ensureFolder(tx, root, "韵家口大队", now)
+		root, err = ensureFolder(tx, root, brigade, now)
 	}
 	if err == nil {
 		root, err = ensureFolder(tx, root, category, now)
@@ -250,7 +255,7 @@ func importUnverified(input ImportInput) (ImportResult, error) {
 	return ImportResult{
 		DataFile:        databasePath,
 		BackupDirectory: backupDirectory,
-		TargetFolder:    "收藏夹 > 西宁高速支队 > 韵家口大队 > " + category,
+		TargetFolder:    "收藏夹 > 西宁高速支队 > " + brigade + " > " + category,
 		ObjectID:        uint32(point.objectID),
 		Attachments:     resultAttachments,
 	}, nil

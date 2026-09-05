@@ -33,7 +33,7 @@ func TestLocateKnownRoutes(t *testing.T) {
 }
 
 func TestLocateParsingAndCoverageErrors(t *testing.T) {
-	for _, input := range []string{"", "G6 K1837+000", "S101 K42+000", "G7 K10+000", "G6 K1792+1000"} {
+	for _, input := range []string{"", "S101 K42+000", "G7 K10+000", "G6 K1792+1000"} {
 		if _, err := Locate(input); err == nil {
 			t.Errorf("Locate(%q) expected an error", input)
 		}
@@ -46,11 +46,39 @@ func TestLocateParsingAndCoverageErrors(t *testing.T) {
 
 func TestCoverageList(t *testing.T) {
 	coverage := CoverageList()
-	if len(coverage) != 2 {
-		t.Fatalf("expected two coverage entries, got %d", len(coverage))
+	if len(coverage) != len(segmentDefinitions) {
+		t.Fatalf("expected %d coverage entries, got %d", len(segmentDefinitions), len(coverage))
 	}
-	if coverage[0].ControlQty < 5 || coverage[1].ControlQty < 4 {
+	if coverage[0].Brigade == "" || coverage[0].SegmentID == "" || coverage[0].ControlQty < 2 {
 		t.Errorf("coverage control counts look incomplete: %#v", coverage)
+	}
+}
+
+func TestLocateAllCatalogSegments(t *testing.T) {
+	for _, segment := range RouteCatalog() {
+		result, err := LocateForSegment(segment.ID, segment.Start)
+		if err != nil {
+			t.Errorf("%s %s failed: %v", segment.ID, segment.Start, err)
+			continue
+		}
+		if result.SegmentID != segment.ID || result.Route != segment.Code {
+			t.Errorf("%s resolved to unexpected result: %#v", segment.ID, result)
+		}
+	}
+}
+
+func TestLocateForSegmentAcceptsRawAndQualifiedStations(t *testing.T) {
+	for _, input := range []string{"K1792+200", "G6 K1792+200", "g6 k1792+200"} {
+		result, err := LocateForSegment("xjk-g6-pingxi", input)
+		if err != nil {
+			t.Fatalf("LocateForSegment(%q) returned error: %v", input, err)
+		}
+		if result.Route != "G6" || result.Meter != 1792200 {
+			t.Fatalf("LocateForSegment(%q) returned %#v", input, result)
+		}
+	}
+	if _, err := LocateForSegment("xjk-g6-pingxi", "S101 K12+700"); err == nil {
+		t.Fatal("expected a route mismatch error")
 	}
 }
 

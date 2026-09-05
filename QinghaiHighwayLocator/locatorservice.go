@@ -16,8 +16,16 @@ func (s *LocatorService) GetCoverage() []locator.Coverage {
 	return locator.CoverageList()
 }
 
+func (s *LocatorService) GetRouteCatalog() []locator.RouteSegment {
+	return locator.RouteCatalog()
+}
+
 func (s *LocatorService) LocateWithMap(station string) (locator.LocalMap, error) {
 	return locator.LocateWithMap(station)
+}
+
+func (s *LocatorService) LocateWithMapForSegment(segmentID, station string) (locator.LocalMap, error) {
+	return locator.LocateWithMapForSegment(segmentID, station)
 }
 
 func (s *LocatorService) GetNetworkHealth() locator.NetworkHealth {

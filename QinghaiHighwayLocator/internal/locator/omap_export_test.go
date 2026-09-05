@@ -77,10 +77,17 @@ func TestParseRangeKilometre(t *testing.T) {
 
 func TestObjectNameAppendsRouteAndStation(t *testing.T) {
 	result := Result{Route: "G6", Station: "K1792+200"}
-	if got := objectName("海东收费站", result); got != "海东收费站 G6 K1792+200" {
+	if got := objectName("海东收费站", result, "收费站"); got != "海东收费站 G6 K1792+200" {
 		t.Fatalf("unexpected object name: %q", got)
 	}
-	if got := objectName("海东收费站 G6 K1792+200", result); got != "海东收费站 G6 K1792+200" {
+	if got := objectName("海东收费站 G6 K1792+200", result, "收费站"); got != "海东收费站 G6 K1792+200" {
 		t.Fatalf("object name should not duplicate station: %q", got)
+	}
+}
+
+func TestObjectNameForStationOnly(t *testing.T) {
+	result := Result{Route: "G6", Station: "K1792+000"}
+	if got := objectName("ignored", result, "桩号"); got != "G6 K1792+000" {
+		t.Fatalf("桩号对象名必须只包含完整线路桩号: %q", got)
 	}
 }

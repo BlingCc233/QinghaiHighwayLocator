@@ -29,12 +29,20 @@ export function GetOmapExportDirectory(): $CancellablePromise<string> {
     return $Call.ByID(1237041721);
 }
 
+export function GetRouteCatalog(): $CancellablePromise<locator$0.RouteSegment[] | null> {
+    return $Call.ByID(3800134313);
+}
+
 export function Locate(station: string): $CancellablePromise<locator$0.Result> {
     return $Call.ByID(2787902665, station);
 }
 
 export function LocateWithMap(station: string): $CancellablePromise<locator$0.LocalMap> {
     return $Call.ByID(729521609, station);
+}
+
+export function LocateWithMapForSegment(segmentID: string, station: string): $CancellablePromise<locator$0.LocalMap> {
+    return $Call.ByID(1786480373, segmentID, station);
 }
 
 export function PickAttachments(): $CancellablePromise<string[] | null> {

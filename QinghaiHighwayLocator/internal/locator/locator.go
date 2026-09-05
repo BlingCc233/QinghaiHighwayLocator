@@ -21,12 +21,15 @@ type controlPoint struct {
 }
 
 type routeData struct {
-	Code       string
-	Name       string
-	StartMeter int
-	EndMeter   int
-	Points     []point
-	Controls   []controlPoint
+	ID          string
+	Brigade     string
+	Code        string
+	Name        string
+	StartMeter  int
+	EndMeter    int
+	Points      []point
+	Controls    []controlPoint
+	SnapNetwork bool
 }
 
 type roadGeometry struct {
@@ -41,6 +44,7 @@ type roadGeometry struct {
 
 type Result struct {
 	Input             string  `json:"input"`
+	SegmentID         string  `json:"segmentId,omitempty"`
 	Route             string  `json:"route"`
 	RouteName         string  `json:"routeName"`
 	Station           string  `json:"station"`
@@ -56,12 +60,15 @@ type Result struct {
 }
 
 type Coverage struct {
-	Code       string `json:"code"`
-	Name       string `json:"name"`
-	Start      string `json:"start"`
-	End        string `json:"end"`
-	LengthKM   string `json:"lengthKm"`
-	ControlQty int    `json:"controlQty"`
+	SegmentID   string `json:"segmentId"`
+	Brigade     string `json:"brigade"`
+	SegmentName string `json:"segmentName"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Start       string `json:"start"`
+	End         string `json:"end"`
+	LengthKM    string `json:"lengthKm"`
+	ControlQty  int    `json:"controlQty"`
 }
 
 // MapPoint is a WGS-84 vertex from the embedded road geometry.
@@ -120,14 +127,14 @@ type NetworkHealth struct {
 
 const networkSnapshot = "OpenStreetMap 道路与匝道几何 · 2026-09-04"
 
-var stationPattern = regexp.MustCompile(`(?i)^\s*(G6|S101)\s*[KＫ]?\s*(\d+)\s*(?:\+\s*(\d{1,3}))?\s*$`)
+var stationPattern = regexp.MustCompile(`(?i)^\s*(G6|G0611|G0612|G569|G341|S101|S104)\s*[KＫ]?\s*(\d+)\s*(?:\+\s*(\d{1,3}))?\s*$`)
 
 func Locate(input string) (Result, error) {
 	routeCode, meter, err := parse(input)
 	if err != nil {
 		return Result{}, err
 	}
-	route, ok := routeByCode(routeCode)
+	route, ok := routeByCodeAndMeter(routeCode, meter)
 	if !ok {
 		return Result{}, fmt.Errorf("当前 Demo 未收录 %s", routeCode)
 	}
@@ -135,11 +142,31 @@ func Locate(input string) (Result, error) {
 		return Result{}, fmt.Errorf("%s 仅覆盖 %s 至 %s", route.Code, formatStation(route.StartMeter), formatStation(route.EndMeter))
 	}
 
+	return locateRoute(route, strings.TrimSpace(input))
+}
+
+func locateRoute(route routeData, input string) (Result, error) {
+	_, meter, err := parse(strings.TrimSpace(input))
+	if err != nil {
+		_, meter, err = parse(route.Code + " " + strings.TrimSpace(input))
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	if meter < route.StartMeter || meter > route.EndMeter {
+		return Result{}, fmt.Errorf("%s 仅覆盖 %s 至 %s", route.Code, formatStation(route.StartMeter), formatStation(route.EndMeter))
+	}
 	rawMeter := calibratedRawMeter(route.Controls, meter)
 	p := pointAtDistance(route.Points, rawMeter)
+	if route.SnapNetwork {
+		if snapped, offset := nearestRoutePoint(p, route.Code); offset <= 500 {
+			p = snapped
+		}
+	}
 	nearest, distance := nearestControl(route.Controls, meter)
 	return Result{
 		Input:             strings.TrimSpace(input),
+		SegmentID:         route.ID,
 		Route:             route.Code,
 		RouteName:         route.Name,
 		Station:           formatStation(meter),
@@ -147,12 +174,57 @@ func Locate(input string) (Result, error) {
 		Latitude:          round(p.Lat, 7),
 		Longitude:         round(p.Lon, 7),
 		CoordinateSystem:  "WGS-84",
-		Reference:         "OpenStreetMap 道路中心线，2026-09-04 下载；资料库桩号控制点校准",
+		Reference:         routeReference(route),
 		NearestControl:    nearest.Name,
 		ControlDistanceM:  distance,
 		Coverage:          fmt.Sprintf("%s 至 %s", formatStation(route.StartMeter), formatStation(route.EndMeter)),
-		VerificationState: "公开路网快照与辖区控制点分段校准",
+		VerificationState: routeVerificationState(route),
 	}, nil
+}
+
+func routeReference(route routeData) string {
+	if route.SnapNetwork {
+		return "OpenStreetMap 道路中心线，2026-09-04 下载；公开锚点分段推算并吸附主线"
+	}
+	return "OpenStreetMap 道路中心线，2026-09-04 下载；资料库桩号控制点校准"
+}
+
+func routeVerificationState(route routeData) string {
+	if route.SnapNetwork {
+		return "公开路网快照与端点/控制点分段推算，建议现场复核"
+	}
+	return "公开路网快照与辖区控制点分段校准"
+}
+
+func LocateForSegment(segmentID, input string) (Result, error) {
+	if strings.TrimSpace(segmentID) == "" {
+		return Locate(input)
+	}
+	definition, ok := routeDefinition(segmentID)
+	if !ok {
+		return Result{}, fmt.Errorf("未找到所选辖区路段")
+	}
+	// Accept both the raw station (K1792+200) and the fully-qualified form
+	// (G6 K1792+200); callers use both forms.
+	qualified := strings.TrimSpace(input)
+	parsedCode, meter, err := parse(qualified)
+	if err != nil {
+		qualified = definition.Code + " " + qualified
+		parsedCode, meter, err = parse(qualified)
+	}
+	if err != nil {
+		return Result{}, err
+	}
+	if parsedCode != definition.Code {
+		return Result{}, fmt.Errorf("所选路段为 %s，不能使用 %s 桩号", definition.Code, parsedCode)
+	}
+	if meter < definition.StartMeter || meter > definition.EndMeter {
+		return Result{}, fmt.Errorf("%s 仅覆盖 %s 至 %s", definition.Code, formatStation(definition.StartMeter), formatStation(definition.EndMeter))
+	}
+	if route, exists := routeByID(segmentID); exists {
+		return locateRoute(route, definition.Code+" "+formatStation(meter))
+	}
+	return Result{}, fmt.Errorf("所选路段几何数据不可用")
 }
 
 // LocateWithMap returns the station conversion and actual nearby OSM road ways
@@ -162,6 +234,10 @@ func LocateWithMap(input string) (LocalMap, error) {
 	if err != nil {
 		return LocalMap{}, err
 	}
+	return localMapForResult(result)
+}
+
+func localMapForResult(result Result) (LocalMap, error) {
 	const rangeM = 180.0
 	const captureM = 460.0
 	target := point{Lat: result.Latitude, Lon: result.Longitude}
@@ -208,7 +284,10 @@ func LocateWithMap(input string) (LocalMap, error) {
 	if !mainlineMatched {
 		nearestMainlineM = 0
 	}
-	route, _ := routeByCode(result.Route)
+	route, found := routeByID(result.SegmentID)
+	if !found {
+		route, _ = routeByCodeAndMeter(result.Route, result.Meter)
+	}
 	return LocalMap{
 		Result: result, CenterLatitude: result.Latitude, CenterLongitude: result.Longitude,
 		RangeM: int(rangeM), Roads: roads, MainlineOffsetM: round(nearestMainlineM, 1), MainlineMatched: mainlineMatched,
@@ -216,12 +295,22 @@ func LocateWithMap(input string) (LocalMap, error) {
 	}, nil
 }
 
+func LocateWithMapForSegment(segmentID, input string) (LocalMap, error) {
+	result, err := LocateForSegment(segmentID, input)
+	if err != nil {
+		return LocalMap{}, err
+	}
+	return localMapForResult(result)
+}
+
 func CoverageList() []Coverage {
-	coverage := make([]Coverage, 0, len(embeddedRoutes))
-	for _, route := range embeddedRoutes {
+	coverage := make([]Coverage, 0, len(segmentDefinitions))
+	for _, definition := range segmentDefinitions {
+		route := definition.RouteSegment
 		coverage = append(coverage, Coverage{
+			SegmentID: route.ID, Brigade: route.Brigade, SegmentName: route.SegmentName,
 			Code: route.Code, Name: route.Name, Start: formatStation(route.StartMeter), End: formatStation(route.EndMeter),
-			LengthKM: fmt.Sprintf("%.2f", float64(route.EndMeter-route.StartMeter)/1000), ControlQty: len(route.Controls),
+			LengthKM: fmt.Sprintf("%.2f", float64(route.EndMeter-route.StartMeter)/1000), ControlQty: len(definition.anchors),
 		})
 	}
 	return coverage
@@ -325,18 +414,8 @@ func distanceToRoad(target point, points []point) float64 {
 }
 
 func distanceToSegment(target, a, b point) float64 {
-	const degreesToMeters = 111320.0
-	cosLatitude := math.Cos(target.Lat * math.Pi / 180)
-	ax, ay := (a.Lon-target.Lon)*degreesToMeters*cosLatitude, (a.Lat-target.Lat)*degreesToMeters
-	bx, by := (b.Lon-target.Lon)*degreesToMeters*cosLatitude, (b.Lat-target.Lat)*degreesToMeters
-	dx, dy := bx-ax, by-ay
-	denominator := dx*dx + dy*dy
-	if denominator == 0 {
-		return math.Hypot(ax, ay)
-	}
-	fraction := -(ax*dx + ay*dy) / denominator
-	fraction = math.Max(0, math.Min(1, fraction))
-	return math.Hypot(ax+fraction*dx, ay+fraction*dy)
+	_, distance := nearestPointOnSegment(target, a, b)
+	return distance
 }
 
 func parse(input string) (string, int, error) {
@@ -365,6 +444,93 @@ func routeByCode(code string) (routeData, bool) {
 		}
 	}
 	return routeData{}, false
+}
+
+func routeByCodeAndMeter(code string, meter int) (routeData, bool) {
+	for _, route := range embeddedRoutes {
+		if route.Code == code && meter >= route.StartMeter && meter <= route.EndMeter {
+			return route, true
+		}
+	}
+	for _, definition := range segmentDefinitions {
+		if definition.Code == code && meter >= definition.StartMeter && meter <= definition.EndMeter {
+			return routeFromDefinition(definition), true
+		}
+	}
+	return routeData{}, false
+}
+
+func routeByID(id string) (routeData, bool) {
+	definition, ok := routeDefinition(id)
+	if !ok {
+		return routeData{}, false
+	}
+	for _, route := range embeddedRoutes {
+		if route.Code == definition.Code && definition.StartMeter >= route.StartMeter && definition.EndMeter <= route.EndMeter {
+			route.ID = definition.ID
+			route.Brigade = definition.Brigade
+			route.StartMeter = definition.StartMeter
+			route.EndMeter = definition.EndMeter
+			return route, true
+		}
+	}
+	return routeFromDefinition(definition), true
+}
+
+func routeFromDefinition(definition segmentDefinition) routeData {
+	anchors := append([]routeAnchor(nil), definition.anchors...)
+	points := make([]point, 0, len(anchors)*160)
+	controls := make([]controlPoint, 0, len(anchors))
+	if len(anchors) == 0 {
+		return routeData{}
+	}
+	points = append(points, anchors[0].point)
+	controls = append(controls, controlPoint{Meter: anchors[0].meter, Name: anchors[0].name, RawMeter: 0})
+	walked := 0.0
+	for index := 1; index < len(anchors); index++ {
+		previous, anchor := anchors[index-1], anchors[index]
+		span := distance(previous.point, anchor.point)
+		steps := int(span/60) + 1
+		for step := 1; step <= steps; step++ {
+			next := interpolate(previous.point, anchor.point, float64(step)/float64(steps))
+			walked += distance(points[len(points)-1], next)
+			points = append(points, next)
+		}
+		controls = append(controls, controlPoint{Meter: anchor.meter, Name: anchor.name, RawMeter: walked})
+	}
+	return routeData{ID: definition.ID, Brigade: definition.Brigade, Code: definition.Code, Name: definition.Name, StartMeter: definition.StartMeter, EndMeter: definition.EndMeter, Points: points, Controls: controls, SnapNetwork: true}
+}
+
+func nearestRoutePoint(target point, code string) (point, float64) {
+	best := target
+	bestDistance := math.Inf(1)
+	for _, road := range embeddedRoadNetwork {
+		if roadKind(road, code) != "main" {
+			continue
+		}
+		for index := 1; index < len(road.Points); index++ {
+			candidate, d := nearestPointOnSegment(target, road.Points[index-1], road.Points[index])
+			if d < bestDistance {
+				best, bestDistance = candidate, d
+			}
+		}
+	}
+	return best, bestDistance
+}
+
+func nearestPointOnSegment(target, a, b point) (point, float64) {
+	const degreesToMeters = 111320.0
+	cosLatitude := math.Cos(target.Lat * math.Pi / 180)
+	ax, ay := (a.Lon-target.Lon)*degreesToMeters*cosLatitude, (a.Lat-target.Lat)*degreesToMeters
+	bx, by := (b.Lon-target.Lon)*degreesToMeters*cosLatitude, (b.Lat-target.Lat)*degreesToMeters
+	dx, dy := bx-ax, by-ay
+	denominator := dx*dx + dy*dy
+	if denominator == 0 {
+		return a, math.Hypot(ax, ay)
+	}
+	fraction := -(ax*dx + ay*dy) / denominator
+	fraction = math.Max(0, math.Min(1, fraction))
+	return point{Lat: a.Lat + (b.Lat-a.Lat)*fraction, Lon: a.Lon + (b.Lon-a.Lon)*fraction}, math.Hypot(ax+fraction*dx, ay+fraction*dy)
 }
 
 func calibratedRawMeter(controls []controlPoint, meter int) float64 {

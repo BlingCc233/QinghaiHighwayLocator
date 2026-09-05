@@ -21,6 +21,8 @@ import (
 // are local files selected by the native Windows file dialog.
 type OmapPointInput struct {
 	Station         string   `json:"station"`
+	Brigade         string   `json:"brigade"`
+	SegmentID       string   `json:"segmentId"`
 	AssetType       string   `json:"assetType"`
 	Name            string   `json:"name"`
 	Attachments     []string `json:"attachments"`
@@ -32,6 +34,8 @@ type OmapPointInput struct {
 // StartStation and EndStation accept values such as "1766" or "K1766".
 type OmapRangeInput struct {
 	Route           string `json:"route"`
+	Brigade         string `json:"brigade"`
+	SegmentID       string `json:"segmentId"`
 	StartStation    string `json:"startStation"`
 	EndStation      string `json:"endStation"`
 	Name            string `json:"name"`
@@ -84,9 +88,9 @@ var assetTypes = map[string]string{
 // files. OMAP can import the generated OVJSN from this directory safely.
 func DefaultOmapExportDirectory() string {
 	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, "Documents", "omap", "exports", "韵家口大队")
+		return filepath.Join(home, "Documents", "omap", "exports", "西宁高速支队")
 	}
-	return filepath.Join("exports", "韵家口大队")
+	return filepath.Join("exports", "西宁高速支队")
 }
 
 // DefaultOmapDataDirectory is the installed OMAP data location. Native point
@@ -116,10 +120,10 @@ func ExportOmap(input OmapPointInput) (OmapExportResult, error) {
 		return OmapExportResult{}, fmt.Errorf("请选择路产类型")
 	}
 	name := strings.TrimSpace(input.Name)
-	if name == "" {
+	if name == "" && strings.TrimSpace(input.AssetType) != "桩号" {
 		return OmapExportResult{}, fmt.Errorf("请输入路产或 Ping 点名称")
 	}
-	result, err := Locate(input.Station)
+	result, err := LocateForSegment(input.SegmentID, input.Station)
 	if err != nil {
 		return OmapExportResult{}, err
 	}
@@ -149,8 +153,9 @@ func ExportOmap(input OmapPointInput) (OmapExportResult, error) {
 	}
 	nativeResult, err := omapnative.Import(omapnative.ImportInput{
 		DataDirectory: dataDirectory,
+		Brigade:       input.Brigade,
 		AssetType:     input.AssetType,
-		Name:          objectName(name, result),
+		Name:          objectName(name, result, input.AssetType),
 		Latitude:      result.Latitude,
 		Longitude:     result.Longitude,
 		Attachments:   input.Attachments,
@@ -187,9 +192,6 @@ func ExportOmapRange(input OmapRangeInput) (OmapRangeResult, error) {
 	if route == "" {
 		return OmapRangeResult{}, fmt.Errorf("请选择线路")
 	}
-	if strings.TrimSpace(input.Name) == "" {
-		return OmapRangeResult{}, fmt.Errorf("请输入桩号点名称")
-	}
 	start, err := parseRangeKilometre(input.StartStation)
 	if err != nil {
 		return OmapRangeResult{}, fmt.Errorf("起始桩号无效：%w", err)
@@ -212,7 +214,7 @@ func ExportOmapRange(input OmapRangeInput) (OmapRangeResult, error) {
 	skipped := 0
 	for kilometre := start; kilometre <= end; kilometre++ {
 		station := fmt.Sprintf("%s K%d+000", route, kilometre)
-		result, locateErr := Locate(station)
+		result, locateErr := LocateForSegment(input.SegmentID, station)
 		if locateErr != nil {
 			skipped++
 			continue
@@ -227,8 +229,9 @@ func ExportOmapRange(input OmapRangeInput) (OmapRangeResult, error) {
 	for _, item := range candidates {
 		result, exportErr := ExportOmap(OmapPointInput{
 			Station:         item.station,
+			Brigade:         input.Brigade,
+			SegmentID:       input.SegmentID,
 			AssetType:       "桩号",
-			Name:            strings.TrimSpace(input.Name),
 			OutputDirectory: input.OutputDirectory,
 			SyncToOmap:      true,
 		})
@@ -266,8 +269,11 @@ func parseRangeKilometre(value string) (int, error) {
 	return parsed, nil
 }
 
-func objectName(name string, result Result) string {
+func objectName(name string, result Result, assetType string) string {
 	station := result.Route + " " + result.Station
+	if strings.TrimSpace(assetType) == "桩号" {
+		return station
+	}
 	if strings.HasSuffix(name, station) {
 		return name
 	}

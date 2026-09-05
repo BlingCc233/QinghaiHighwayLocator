@@ -13,5 +13,6 @@ export type {
     OmapRangeResult,
     Result,
     RoadFeature,
-    RouteHealth
+    RouteHealth,
+    RouteSegment
 } from "./models.js";

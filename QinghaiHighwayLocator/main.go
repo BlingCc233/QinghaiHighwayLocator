@@ -12,7 +12,7 @@ var assets embed.FS
 func main() {
 	app := application.New(application.Options{
 		Name:        "青海高速路产定位",
-		Description: "韵家口大队辖区路产定位与奥维对象导出",
+		Description: "西宁高速支队辖区路产定位与奥维对象导出",
 		Services: []application.Service{
 			application.NewService(&LocatorService{}),
 		},

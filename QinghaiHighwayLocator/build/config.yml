@@ -8,9 +8,9 @@ info:
   companyName: "韵家口大队"
   productName: "青海高速路产定位"
   productIdentifier: "cn.qinghai.yunjakou.stationlocator"
-  description: "韵家口大队辖区路产定位与奥维对象导出"
+  description: "西宁高速支队辖区路产定位与奥维对象导出"
   copyright: "(c) 2026 韵家口大队"
-  comments: "G6 与 S101 辖区路产定位及奥维对象导出工具"
+  comments: "多大队公路桩号定位及奥维对象导出工具"
   version: "0.2.0"
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
