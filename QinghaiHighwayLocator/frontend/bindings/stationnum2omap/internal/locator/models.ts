@@ -83,7 +83,9 @@ export interface OmapPointInput {
     "brigade": string;
     "segmentId": string;
     "assetType": string;
+    "subfolders"?: string[] | null;
     "name": string;
+    "comment"?: string;
     "attachments": string[] | null;
     "outputDirectory": string;
     "syncToOmap": boolean;
@@ -121,6 +123,7 @@ export interface Result {
     "meter": number;
     "latitude": number;
     "longitude": number;
+    "elevationMeters"?: number | null;
     "coordinateSystem": string;
     "reference": string;
     "nearestControl": string;

@@ -1,7 +1,6 @@
 package locator
 
 import (
-	"archive/zip"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/json"
@@ -24,7 +23,9 @@ type OmapPointInput struct {
 	Brigade         string   `json:"brigade"`
 	SegmentID       string   `json:"segmentId"`
 	AssetType       string   `json:"assetType"`
+	Subfolders      []string `json:"subfolders,omitempty"`
 	Name            string   `json:"name"`
+	Comment         string   `json:"comment,omitempty"`
 	Attachments     []string `json:"attachments"`
 	OutputDirectory string   `json:"outputDirectory"`
 	SyncToOmap      bool     `json:"syncToOmap"`
@@ -76,12 +77,11 @@ type OmapExportResult struct {
 }
 
 var assetTypes = map[string]string{
-	"桥梁":   "桥梁",
-	"隧道":   "隧道",
-	"服务区":  "服务区",
-	"桩号":   "桩号",
-	"行政许可": "行政许可",
-	"收费站":  "收费站",
+	"桥梁": "桥梁", "涵洞": "涵洞", "隧道": "隧道", "服务区": "服务区、停车区", "停车区": "服务区、停车区", "服务区、停车区": "服务区、停车区", "停车区、服务区": "服务区、停车区",
+	"桩号": "桩号", "行政许可": "行政许可", "涉路施工监管": "涉路施工监管", "涉路施工": "涉路施工", "车辆通道": "车辆通道", "收费站": "收费站",
+	"避险车道": "避险车道", "劝返站点": "劝返站点", "跨线桥": "跨线桥", "监控设施": "监控设施", "ETC龙门架": "ETC龙门架",
+	"情报板": "情报板", "高边坡": "高边坡", "安全隐患": "安全隐患", "网格化联络表": "网格化联络表",
+	"建筑控制区内非公路标志牌": "建筑控制区内非公路标志牌", "公路用地非公路标志牌": "公路用地非公路标志牌", "公路附属设施标志标牌": "公路附属设施标志标牌",
 }
 
 // DefaultOmapExportDirectory is deliberately outside OMAP's encrypted data
@@ -155,9 +155,12 @@ func ExportOmap(input OmapPointInput) (OmapExportResult, error) {
 		DataDirectory: dataDirectory,
 		Brigade:       input.Brigade,
 		AssetType:     input.AssetType,
+		Subfolders:    input.Subfolders,
 		Name:          objectName(name, result, input.AssetType),
 		Latitude:      result.Latitude,
 		Longitude:     result.Longitude,
+		Altitude:      result.ElevationMeters,
+		Comment:       input.Comment,
 		Attachments:   input.Attachments,
 	})
 	if err != nil {
@@ -451,45 +454,4 @@ func buildComment(result Result, assetType, name string, attachments []OmapAttac
 		fmt.Fprintf(&b, "- %s (%d bytes)\n", item.Name, item.Size)
 	}
 	return strings.TrimSpace(b.String())
-}
-
-func zipDirectory(source, destination string) error {
-	out, err := os.Create(destination)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	archive := zip.NewWriter(out)
-	defer archive.Close()
-	return filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-		header.Name = filepath.ToSlash(rel)
-		writer, err := archive.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		_, copyErr := io.Copy(writer, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		return closeErr
-	})
 }

@@ -11,7 +11,7 @@ info:
   description: "西宁高速支队辖区路产定位与奥维对象导出"
   copyright: "(c) 2026 韵家口大队"
   comments: "多大队公路桩号定位及奥维对象导出工具"
-  version: "0.0.1"
+  version: "0.0.2"
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
   #                               # If not set and Assets.car exists, defaults to "appicon"

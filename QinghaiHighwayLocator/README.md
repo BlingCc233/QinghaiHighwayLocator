@@ -24,6 +24,10 @@
 
 局部地图使用 2026-09-04/09-05 下载的 OpenStreetMap `motorway`、`motorway_link`、`trunk`、`trunk_link`、`primary`、`primary_link` 原始几何。主线、分向道路和匝道从真实点列绘制，匝道不是前端示意短线；道路的 `lanes` 标签用来绘制车道分隔标记，Ping 点始终位于当前经纬度对应的位置。
 
+韵家口大队三段路线另沿现有桩号换算线每 100 米采样一次 [SRTM 30 m 地形高程](https://www.opentopodata.org/datasets/srtm/)，末端不足 100 米另取终点。2026-09-28 的离线剖面共 1112 个样本；按桩号长度做梯形积分，G6 平安—西宁段平均约 2172.4 米、G6 西过境段约 2351.0 米、S101 段约 2422.3 米，三段合计 110.83 公里的里程加权平均约 2323.0 米。写入韵家口点位时按相邻样本插值得到该桩号的估算海拔，不使用辖区平均值替代单点高度。数据可通过 `go run ./tools/generate_elevation_data` 重新生成。
+
+这些数值是地形高程估算，不能等同测量所得的路面海拔；桥面、隧道和高架路段尤其可能偏离 DEM。奥维三维地形模型与 SRTM 数据也可能存在高程基准和分辨率差异，需用奥维手动标点及现场高程对照核验贴地效果。
+
 数据署名：© OpenStreetMap contributors，遵循 [ODbL](https://www.openstreetmap.org/copyright)。公开数据快照和控制点均可版本化更新，后续可在此基础上接入影像复核、巡查记录和现场采集结果。
 
 ## 构建
@@ -42,6 +46,41 @@ go run .\tools\generate_network_data
 ```
 
 然后重新构建。历史桩号换算的主线数据生成器保留在 `tools/generate_road_data.go`。
+
+## CLI 批量导入与增量同步
+
+项目还提供不依赖桌面界面的 `cmd/omap-import`。先关闭 OMap，并设置其 `data` 目录：
+
+```powershell
+$env:QINGHAI_OMAP_DATA = 'C:\Users\13421\Documents\omap\data'
+go run ./cmd/omap-import scan --root '档案目录' --segment xjk-g6-xiguojing --json
+go run ./cmd/omap-import import --root '档案目录' --segment xjk-g6-xiguojing --json
+```
+
+CLI 从文件名/父目录识别 `G6 K1801+080`、`K1801+080` 或 `K1814` 桩号。扫描只收录图片文件（jpg/jpeg/png/webp/bmp/gif/tif/tiff），每张图片建立一个独立点，绝不生成 ZIP、DOC 或其它打包附件；`manifest.json` 可显式指定 `segmentId`、`assetType`、`name`、`comment` 和图片路径。`comment` 会写入 OMap 点自身的备注字段。每个新点都写入可编辑元数据，导入后可直接拖动。状态保存在档案根目录的 `.qinghai-omap-import-state.json`，只会处理新增或内容变化的图片。
+
+单独录入一个点时，可指定大队下的精确目录、名称、图片、备注、桩号和 OMap data 路径：
+
+```powershell
+go run ./cmd/omap-import point --segment xjk-g6-xiguojing --station 'G6 K1807+228' --folder '行政许可/跨越公路' --name '跨越公路架设电缆' --comment '许可编号：青交许字〔2026〕1号' --attachment '.\57+060.jpg' --data 'C:\Users\13421\Documents\omap\data' --json
+go run ./cmd/omap-import help point
+```
+
+`--folder` 从路产类型开始，归档在 `收藏夹 > 西宁高速支队 > 韵家口大队` 下；`--data` 覆盖环境变量。所有子命令支持 `-h`、`--help`，顶层 `-h` 列出命令。
+
+查看变更状态：
+
+```powershell
+go run ./cmd/omap-import status --root '档案目录' --json
+```
+
+只带走 OMap 变更文件：
+
+```powershell
+go run ./cmd/omap-import delta --destination '增量包目录' --json
+```
+
+给其它 AI agent 的完整操作约束见 [`docs/AI_AGENT_OMAP_IMPORT.md`](docs/AI_AGENT_OMAP_IMPORT.md)。
 
 ## Logo
 

@@ -1,14 +1,13 @@
 package omapnative
 
 import (
-	"archive/zip"
 	"bytes"
 	"database/sql"
 	"encoding/binary"
-	"io"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -33,33 +32,20 @@ func TestImportOnCopy(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dataDirectory, databaseFileName), contents, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	attachmentOne := filepath.Join(root, "巡查记录.txt")
-	attachmentTwo := filepath.Join(root, "现场照片.jpg")
+	attachmentOne := filepath.Join(root, "现场照片.jpg")
 	if err := os.WriteFile(attachmentOne, []byte("one"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(attachmentTwo, []byte("two"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	result, err := Import(ImportInput{DataDirectory: dataDirectory, AssetType: "桩号", Name: "兼容性探针 G6 K1792+200", Latitude: 36.5458288, Longitude: 101.9648821, Attachments: []string{attachmentOne, attachmentTwo}})
+	result, err := Import(ImportInput{DataDirectory: dataDirectory, AssetType: "桩号", Subfolders: []string{"测试子目录"}, Name: "兼容性探针 G6 K1792+200", Latitude: 36.5458288, Longitude: 101.9648821, Comment: "测试备注", Attachments: []string{attachmentOne}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.ObjectID == 0 {
 		t.Fatal("writer returned an empty object ID")
 	}
-	if len(result.Attachments) != 1 || filepath.Ext(result.Attachments[0].OmapName) != ".zip" {
-		t.Fatalf("multi-attachment import should create one ZIP attachment, got %#v", result.Attachments)
+	if len(result.Attachments) != 1 || filepath.Ext(result.Attachments[0].OmapName) != ".jpg" {
+		t.Fatalf("single image attachment = %#v", result.Attachments)
 	}
-	archive, err := zip.OpenReader(filepath.Join(dataDirectory, "attachment", result.Attachments[0].OmapName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(archive.File) != 2 {
-		archive.Close()
-		t.Fatalf("installed attachment ZIP entries = %d, want 2", len(archive.File))
-	}
-	archive.Close()
 	encoded, err := os.ReadFile(filepath.Join(dataDirectory, databaseFileName))
 	if err != nil {
 		t.Fatal(err)
@@ -85,6 +71,13 @@ func TestImportOnCopy(t *testing.T) {
 	if name != "兼容性探针 G6 K1792+200" {
 		t.Fatalf("written point name = %q", name)
 	}
+	nameEnd := pointNameOffset + int(contents[pointNameLengthOffset]) + pointSuffixLength
+	if !strings.Contains(string(contents[nameEnd:]), "测试备注") {
+		t.Fatalf("written point comment missing: %x", contents[nameEnd:])
+	}
+	if got := contents[272:276]; !bytes.Equal(got, []byte{4, 0, 1, 0}) {
+		t.Fatalf("written point editable metadata = %x", got)
+	}
 	var state sql.NullInt64
 	if err := db.QueryRow("SELECT md5s FROM object WHERE objid = ?", result.ObjectID).Scan(&state); err != nil {
 		t.Fatal(err)
@@ -100,8 +93,21 @@ func TestImportOnCopy(t *testing.T) {
 	if err := db.QueryRow("SELECT data FROM object WHERE objid = ?", parentID).Scan(&categoryData); err != nil {
 		t.Fatal(err)
 	}
+	if folderName(categoryData) != "测试子目录" {
+		t.Fatalf("point parent = %q, want 测试子目录", folderName(categoryData))
+	}
+	var categoryParentID int64
+	if err := db.QueryRow("SELECT parentid FROM object WHERE objid = ?", parentID).Scan(&categoryParentID); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT data FROM object WHERE objid = ?", categoryParentID).Scan(&categoryData); err != nil {
+		t.Fatal(err)
+	}
 	if folderName(categoryData) != "桩号" {
-		t.Fatalf("point parent = %q, want 桩号", folderName(categoryData))
+		t.Fatalf("subfolder parent = %q, want 桩号", folderName(categoryData))
+	}
+	if !strings.HasSuffix(result.TargetFolder, "桩号 > 测试子目录") {
+		t.Fatalf("target folder = %q", result.TargetFolder)
 	}
 	var groupData []byte
 	if err := db.QueryRow("SELECT groupdata FROM object WHERE objid = ?", parentID).Scan(&groupData); err != nil {
@@ -115,11 +121,13 @@ func TestImportOnCopy(t *testing.T) {
 func TestMakePointDataPreservesFixedMetadata(t *testing.T) {
 	template := make([]byte, 384)
 	copy(template[272:276], []byte{4, 0, 1, 0})
+	binary.LittleEndian.PutUint32(template[pointAltitudeOffset:pointAltitudeOffset+4], 3500)
 	for index := pointAttachmentOffset; index < pointExtensionOffset+16; index++ {
 		template[index] = 0xff
 	}
 
-	data, err := makePointData(template, "韵家口收费站", 36.5458288, 101.9648821, nil, 1788600000)
+	altitude := int32(2200)
+	data, err := makePointData(template, "韵家口收费站", 36.5458288, 101.9648821, &altitude, "", nil, 1788600000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,6 +143,9 @@ func TestMakePointDataPreservesFixedMetadata(t *testing.T) {
 	if got := math.Float64frombits(binary.LittleEndian.Uint64(data[pointLongitudeOffset : pointLongitudeOffset+8])); got != 101.9648821 {
 		t.Fatalf("longitude = %.7f", got)
 	}
+	if got := binary.LittleEndian.Uint32(data[pointAltitudeOffset : pointAltitudeOffset+4]); got != 2200 {
+		t.Fatalf("new point altitude = %d, want 2200", got)
+	}
 	if got := data[272:276]; !bytes.Equal(got, []byte{4, 0, 1, 0}) {
 		t.Fatalf("fixed metadata was overwritten: %x", got)
 	}
@@ -146,49 +157,76 @@ func TestMakePointDataPreservesFixedMetadata(t *testing.T) {
 	}
 }
 
+func TestMakePointDataNormalizesEditableMetadata(t *testing.T) {
+	template := make([]byte, 384)
+	copy(template[272:276], []byte{0, 0, 0, 0})
+	data, err := makePointData(template, "可拖动点", 36, 101, nil, "", nil, 1788600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := data[272:276]; !bytes.Equal(got, []byte{4, 0, 1, 0}) {
+		t.Fatalf("editable metadata = %x, want 04000100", got)
+	}
+}
+
+func TestMakePointDataWithoutAltitudePreservesTemplate(t *testing.T) {
+	template := make([]byte, 384)
+	binary.LittleEndian.PutUint32(template[pointAltitudeOffset:pointAltitudeOffset+4], 3500)
+	data, err := makePointData(template, "测试", 36, 101, nil, "", nil, 1788600000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := binary.LittleEndian.Uint32(data[pointAltitudeOffset : pointAltitudeOffset+4]); got != 3500 {
+		t.Fatalf("template altitude = %d, want 3500", got)
+	}
+}
+
 func TestMakePointDataRejectsMultipleAttachments(t *testing.T) {
 	template := make([]byte, 384)
-	_, err := makePointData(template, "测试", 36, 101, []preparedAttachment{{id: 1}, {id: 2}}, 1788600000)
+	_, err := makePointData(template, "测试", 36, 101, nil, "", []preparedAttachment{{id: 1}, {id: 2}}, 1788600000)
 	if err == nil {
 		t.Fatal("expected multi-attachment error")
 	}
 }
 
-func TestCreateAttachmentBundlePreservesFiles(t *testing.T) {
-	directory := t.TempDir()
-	first := filepath.Join(directory, "巡查记录.txt")
-	second := filepath.Join(directory, "现场照片.txt")
-	if err := os.WriteFile(first, []byte("one"), 0o600); err != nil {
+func TestNewAssetCategories(t *testing.T) {
+	for _, name := range []string{"涵洞", "涉路施工监管", "车辆通道"} {
+		if got, ok := categoryName(name); !ok || got != name {
+			t.Errorf("categoryName(%q) = %q, %t", name, got, ok)
+		}
+	}
+}
+
+func TestValidateSubfolders(t *testing.T) {
+	if err := validateSubfolders([]string{"跨越公路", "许可照片"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(second, []byte("two"), 0o600); err != nil {
+	for _, name := range []string{"", ".", "..", "../其他大队", `C:\\data`, "名称/目录", "名称\n目录"} {
+		if err := validateSubfolders([]string{name}); err == nil {
+			t.Errorf("accepted invalid subfolder %q", name)
+		}
+	}
+}
+
+func TestPrepareAttachmentsRejectsNonImage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "说明.docx")
+	if err := os.WriteFile(path, []byte("doc"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bundle, err := createAttachmentBundle([]preparedAttachment{{sourcePath: first}, {sourcePath: second}})
+	if _, err := prepareAttachments([]string{path}); err == nil {
+		t.Fatal("expected non-image rejection")
+	}
+}
+
+func TestMakePointDataWritesComment(t *testing.T) {
+	template := make([]byte, 384)
+	data, err := makePointData(template, "测试点", 36, 101, nil, "许可编号：青交许字〔2026〕1号\n备注", nil, 1788600000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(bundle)
-	archive, err := zip.OpenReader(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer archive.Close()
-	if len(archive.File) != 2 {
-		t.Fatalf("bundle entries = %d, want 2", len(archive.File))
-	}
-	for _, entry := range archive.File {
-		reader, openErr := entry.Open()
-		if openErr != nil {
-			t.Fatal(openErr)
-		}
-		contents, readErr := io.ReadAll(reader)
-		reader.Close()
-		if readErr != nil {
-			t.Fatal(readErr)
-		}
-		if string(contents) != "one" && string(contents) != "two" {
-			t.Fatalf("unexpected bundle content %q", contents)
-		}
+	nameLen := int(data[pointNameLengthOffset])
+	comment := data[pointNameOffset+nameLen+pointSuffixLength:]
+	if string(comment[:len(comment)-1]) != "许可编号：青交许字〔2026〕1号\n备注" || comment[len(comment)-1] != 0 {
+		t.Fatalf("comment bytes = %x", comment)
 	}
 }

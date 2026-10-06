@@ -1,7 +1,6 @@
 package omapnative
 
 import (
-	"archive/zip"
 	"crypto/md5"
 	"crypto/rand"
 	"database/sql"
@@ -33,6 +32,7 @@ const (
 	pointExtensionOffset   = 56
 	pointLatitudeOffset    = 300
 	pointLongitudeOffset   = 308
+	pointAltitudeOffset    = 316
 	pointNameLengthOffset  = 331
 	pointNameOffset        = 332
 	pointPrefixLength      = 331
@@ -45,9 +45,12 @@ type ImportInput struct {
 	DataDirectory string
 	Brigade       string
 	AssetType     string
+	Subfolders    []string
 	Name          string
 	Latitude      float64
 	Longitude     float64
+	Altitude      *int32
+	Comment       string
 	Attachments   []string
 }
 
@@ -115,12 +118,18 @@ func importUnverified(input ImportInput) (ImportResult, error) {
 	if len([]byte(name)) > 255 {
 		return ImportResult{}, errors.New("点位名称过长，最多 255 字节")
 	}
+	if len([]byte(input.Comment)) > 32768 {
+		return ImportResult{}, errors.New("备注过长，最多 32768 字节")
+	}
 	if math.IsNaN(input.Latitude) || math.IsNaN(input.Longitude) || input.Latitude < -90 || input.Latitude > 90 || input.Longitude < -180 || input.Longitude > 180 {
 		return ImportResult{}, errors.New("经纬度无效")
 	}
 	category, ok := categoryName(input.AssetType)
 	if !ok {
 		return ImportResult{}, errors.New("请选择有效的路产类型")
+	}
+	if err := validateSubfolders(input.Subfolders); err != nil {
+		return ImportResult{}, err
 	}
 	databasePath := filepath.Join(dataDirectory, databaseFileName)
 	encrypted, err := os.ReadFile(databasePath)
@@ -139,17 +148,8 @@ func importUnverified(input ImportInput) (ImportResult, error) {
 	if err != nil {
 		return ImportResult{}, err
 	}
-	var attachmentBundle string
 	if len(attachments) > 1 {
-		attachmentBundle, err = createAttachmentBundle(attachments)
-		if err != nil {
-			return ImportResult{}, err
-		}
-		defer os.Remove(attachmentBundle)
-		attachments, err = prepareAttachments([]string{attachmentBundle})
-		if err != nil {
-			return ImportResult{}, err
-		}
+		return ImportResult{}, errors.New("一个奥维点只能写入一张图片；请为每张图片建立独立点位")
 	}
 
 	workDirectory, err := os.MkdirTemp("", "qinghai-omap-import-")
@@ -195,12 +195,18 @@ func importUnverified(input ImportInput) (ImportResult, error) {
 	if err == nil {
 		root, err = ensureFolder(tx, root, category, now)
 	}
+	for _, subfolder := range input.Subfolders {
+		if err != nil {
+			break
+		}
+		root, err = ensureFolder(tx, root, subfolder, now)
+	}
 	if err == nil {
 		err = repairFolderChain(tx, root, now)
 	}
 	var point objectRecord
 	if err == nil {
-		point, err = insertPoint(tx, root, name, input.Latitude, input.Longitude, attachments, now)
+		point, err = insertPoint(tx, root, name, input.Latitude, input.Longitude, input.Altitude, input.Comment, attachments, now)
 	}
 	if err != nil {
 		_ = tx.Rollback()
@@ -255,7 +261,7 @@ func importUnverified(input ImportInput) (ImportResult, error) {
 	return ImportResult{
 		DataFile:        databasePath,
 		BackupDirectory: backupDirectory,
-		TargetFolder:    "收藏夹 > 西宁高速支队 > " + brigade + " > " + category,
+		TargetFolder:    strings.Join(append([]string{"收藏夹", "西宁高速支队", brigade, category}, input.Subfolders...), " > "),
 		ObjectID:        uint32(point.objectID),
 		Attachments:     resultAttachments,
 	}, nil
@@ -277,23 +283,22 @@ func requireOmapClosed() error {
 
 func categoryName(assetType string) (string, bool) {
 	switch strings.TrimSpace(assetType) {
-	case "桥梁":
-		return "桥梁", true
-	case "隧道":
-		return "隧道", true
-	case "服务区", "停车区、服务区":
-		return "停车区、服务区", true
-	case "桩号":
-		return "桩号", true
-	case "行政许可":
-		return "行政许可", true
-	case "收费站":
-		return "收费站", true
-	case "避险车道":
-		return "避险车道", true
+	case "桥梁", "涵洞", "隧道", "收费站", "服务区、停车区", "避险车道", "劝返站点", "跨线桥", "行政许可", "涉路施工监管", "涉路施工", "车辆通道", "桩号", "监控设施", "ETC龙门架", "情报板", "高边坡", "安全隐患", "网格化联络表", "建筑控制区内非公路标志牌", "公路用地非公路标志牌", "公路附属设施标志标牌":
+		return strings.TrimSpace(assetType), true
+	case "服务区", "停车区", "停车区、服务区":
+		return "服务区、停车区", true
 	default:
 		return "", false
 	}
+}
+
+func validateSubfolders(subfolders []string) error {
+	for _, name := range subfolders {
+		if name == "" || name != strings.TrimSpace(name) || name == "." || name == ".." || len([]byte(name)) > 255 || strings.ContainsAny(name, `<>:"/\|?*`) || strings.IndexFunc(name, func(r rune) bool { return r < 32 }) >= 0 {
+			return fmt.Errorf("无效的 OMap 子目录名称：%q", name)
+		}
+	}
+	return nil
 }
 
 func validateDatabase(db *sql.DB) error {
@@ -436,7 +441,7 @@ func findFolderTemplate(tx *sql.Tx, name string) (objectRecord, error) {
 	return fallback, nil
 }
 
-func insertPoint(tx *sql.Tx, parent objectRecord, name string, latitude, longitude float64, attachments []preparedAttachment, modifiedAt int64) (objectRecord, error) {
+func insertPoint(tx *sql.Tx, parent objectRecord, name string, latitude, longitude float64, altitude *int32, comment string, attachments []preparedAttachment, modifiedAt int64) (objectRecord, error) {
 	template, err := findPointTemplate(tx)
 	if err != nil {
 		return objectRecord{}, err
@@ -445,7 +450,7 @@ func insertPoint(tx *sql.Tx, parent objectRecord, name string, latitude, longitu
 	if err != nil {
 		return objectRecord{}, err
 	}
-	data, err := makePointData(template.data, name, latitude, longitude, attachments, modifiedAt)
+	data, err := makePointData(template.data, name, latitude, longitude, altitude, comment, attachments, modifiedAt)
 	if err != nil {
 		return objectRecord{}, err
 	}
@@ -566,7 +571,7 @@ func makeFolderData(template []byte, name string, modifiedAt int64) ([]byte, err
 	return data, nil
 }
 
-func makePointData(template []byte, name string, latitude, longitude float64, attachments []preparedAttachment, modifiedAt int64) ([]byte, error) {
+func makePointData(template []byte, name string, latitude, longitude float64, altitude *int32, comment string, attachments []preparedAttachment, modifiedAt int64) ([]byte, error) {
 	if len(template) < pointNameOffset {
 		return nil, errors.New("奥维点模板格式不完整")
 	}
@@ -579,6 +584,12 @@ func makePointData(template []byte, name string, latitude, longitude float64, at
 	}
 	data := append([]byte(nil), template[:pointPrefixLength]...)
 	putObjectTime(data, modifiedAt)
+	// OMAP's native point editor uses this fixed metadata tuple for an object
+	// that can be moved/edited. Older databases may provide a locked template;
+	// normalize it for every point emitted by this writer.
+	if len(data) >= 276 {
+		data[272], data[273], data[274], data[275] = 4, 0, 1, 0
+	}
 	for offset := pointAttachmentOffset; offset < pointExtensionOffset+16; offset++ {
 		data[offset] = 0
 	}
@@ -596,9 +607,16 @@ func makePointData(template []byte, name string, latitude, longitude float64, at
 	}
 	binary.LittleEndian.PutUint64(data[pointLatitudeOffset:pointLatitudeOffset+8], math.Float64bits(latitude))
 	binary.LittleEndian.PutUint64(data[pointLongitudeOffset:pointLongitudeOffset+8], math.Float64bits(longitude))
+	if altitude != nil {
+		binary.LittleEndian.PutUint32(data[pointAltitudeOffset:pointAltitudeOffset+4], uint32(*altitude))
+	}
 	data = append(data, byte(len(nameBytes)))
 	data = append(data, nameBytes...)
 	data = append(data, make([]byte, pointSuffixLength)...)
+	if comment = strings.TrimSpace(comment); comment != "" {
+		data = append(data, []byte(comment)...)
+		data = append(data, 0)
+	}
 	return data, nil
 }
 
@@ -692,67 +710,23 @@ func prepareAttachments(paths []string) ([]preparedAttachment, error) {
 		}
 		extension := strings.TrimPrefix(strings.ToLower(filepath.Ext(info.Name())), ".")
 		if extension == "" {
-			return nil, fmt.Errorf("附件没有扩展名：%s", info.Name())
+			return nil, fmt.Errorf("图片没有扩展名：%s", info.Name())
+		}
+		if !isImageExtension(extension) {
+			return nil, fmt.Errorf("只允许图片附件，已拒绝：%s", info.Name())
 		}
 		attachments = append(attachments, preparedAttachment{sourcePath: path, extension: extension, size: info.Size(), id: id})
 	}
 	return attachments, nil
 }
 
-// createAttachmentBundle preserves every selected file while respecting the
-// single attachment reference available in OMAP's native type-7 record.
-func createAttachmentBundle(attachments []preparedAttachment) (string, error) {
-	file, err := os.CreateTemp("", "qinghai-omap-attachments-*.zip")
-	if err != nil {
-		return "", fmt.Errorf("无法创建附件包：%w", err)
+func isImageExtension(extension string) bool {
+	switch strings.ToLower(strings.TrimPrefix(extension, ".")) {
+	case "jpg", "jpeg", "png", "webp", "bmp", "gif", "tif", "tiff":
+		return true
+	default:
+		return false
 	}
-	path := file.Name()
-	archive := zip.NewWriter(file)
-	usedNames := make(map[string]int)
-	for _, attachment := range attachments {
-		name := filepath.Base(attachment.sourcePath)
-		if usedNames[name] > 0 {
-			usedNames[name]++
-			name = fmt.Sprintf("%s (%d)%s", strings.TrimSuffix(name, filepath.Ext(name)), usedNames[name], filepath.Ext(name))
-		} else {
-			usedNames[name] = 1
-		}
-		entry, createErr := archive.Create(name)
-		if createErr != nil {
-			archive.Close()
-			file.Close()
-			_ = os.Remove(path)
-			return "", fmt.Errorf("无法打包附件：%w", createErr)
-		}
-		input, openErr := os.Open(attachment.sourcePath)
-		if openErr != nil {
-			archive.Close()
-			file.Close()
-			_ = os.Remove(path)
-			return "", fmt.Errorf("无法读取附件：%w", openErr)
-		}
-		_, copyErr := io.Copy(entry, input)
-		closeErr := input.Close()
-		if copyErr != nil || closeErr != nil {
-			archive.Close()
-			file.Close()
-			_ = os.Remove(path)
-			if copyErr != nil {
-				return "", fmt.Errorf("无法打包附件：%w", copyErr)
-			}
-			return "", fmt.Errorf("无法关闭附件：%w", closeErr)
-		}
-	}
-	if err := archive.Close(); err != nil {
-		file.Close()
-		_ = os.Remove(path)
-		return "", fmt.Errorf("无法完成附件包：%w", err)
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("无法关闭附件包：%w", err)
-	}
-	return path, nil
 }
 
 func newAttachmentID() (uint64, error) {

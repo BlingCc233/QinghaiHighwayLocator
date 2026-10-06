@@ -52,6 +52,7 @@ type Result struct {
 	Meter             int     `json:"meter"`
 	Latitude          float64 `json:"latitude"`
 	Longitude         float64 `json:"longitude"`
+	ElevationMeters   *int32  `json:"elevationMeters,omitempty"`
 	CoordinateSystem  string  `json:"coordinateSystem"`
 	Reference         string  `json:"reference"`
 	NearestControl    string  `json:"nearestControl"`
@@ -165,7 +166,7 @@ func locateRoute(route routeData, input string) (Result, error) {
 		}
 	}
 	nearest, distance := nearestControl(route.Controls, meter)
-	return Result{
+	result := Result{
 		Input:             strings.TrimSpace(input),
 		SegmentID:         route.ID,
 		Route:             route.Code,
@@ -180,7 +181,11 @@ func locateRoute(route routeData, input string) (Result, error) {
 		ControlDistanceM:  distance,
 		Coverage:          fmt.Sprintf("%s 至 %s", formatStation(route.StartMeter), formatStation(route.EndMeter)),
 		VerificationState: routeVerificationState(route),
-	}, nil
+	}
+	if elevation, ok := ElevationForSegment(route.ID, meter); ok {
+		result.ElevationMeters = &elevation
+	}
+	return result, nil
 }
 
 func routeReference(route routeData) string {

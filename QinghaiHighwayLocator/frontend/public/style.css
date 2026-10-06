@@ -133,10 +133,12 @@ svg { display: block; }
 .tool-button:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); transform: translateY(-1px); }
 .dock-meta { display: grid; grid-template-columns: 1.4fr .8fr; gap: 10px; padding: 13px 0; }
 .dock-meta strong { display: block; margin-top: 5px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.elevation-readout { grid-column: 1 / -1; display: flex; align-items: baseline; justify-content: space-between; padding-top: 8px; border-top: 1px solid var(--line); }
+.elevation-readout strong { margin-top: 0; font-family: Consolas, monospace; }
 .reference-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 0 0; border: 0; color: var(--muted); background: transparent; font-size: 10px; text-align: left; }
 .reference-toggle span { color: var(--accent); font-family: Consolas, monospace; font-size: 15px; transition: transform .2s; }
 .reference-detail { max-height: 0; margin: 0; overflow: hidden; color: var(--muted); font-size: 9px; line-height: 1.55; transition: max-height .25s ease, margin-top .25s ease; }
-.show-reference .reference-detail { max-height: 60px; margin-top: 8px; }
+.show-reference .reference-detail { max-height: 90px; margin-top: 8px; }
 .show-reference .reference-toggle span { transform: rotate(45deg); }
 
 .map-topline { top: 23px; left: 50%; display: flex; align-items: center; gap: 8px; max-width: calc(100% - 840px); color: var(--muted); font-family: Consolas, "Microsoft YaHei", monospace; font-size: 10px; transform: translateX(-50%); white-space: nowrap; }

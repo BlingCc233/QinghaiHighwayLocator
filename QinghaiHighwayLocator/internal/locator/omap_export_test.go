@@ -45,6 +45,14 @@ func TestExportOmapValidatesAssetInput(t *testing.T) {
 	}
 }
 
+func TestNewAssetTypesMatchNativeFolders(t *testing.T) {
+	for _, assetType := range []string{"涵洞", "涉路施工监管", "车辆通道"} {
+		if _, ok := assetTypes[assetType]; !ok {
+			t.Errorf("missing export asset type %q", assetType)
+		}
+	}
+}
+
 func TestExportOmapInputRetainsNativeContract(t *testing.T) {
 	if omapnative.ErrNativeWriteDisabled == nil {
 		t.Fatal("native compatibility sentinel must remain available")

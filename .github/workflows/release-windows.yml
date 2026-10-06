@@ -9,7 +9,7 @@ on:
       tag:
         description: Release tag to create
         required: true
-        default: v0.0.1
+        default: v0.0.2
         type: string
 
 permissions:
@@ -54,22 +54,31 @@ jobs:
       - name: Build executable
         run: wails3 build
 
+      - name: Build CLI executable
+        shell: pwsh
+        run: go build -trimpath -ldflags "-s -w -X main.version=$($env:RELEASE_TAG.TrimStart('v'))" -o bin/omap-import.exe ./cmd/omap-import
+
       - name: Stage release asset
         shell: pwsh
         run: |
           $assetName = "QinghaiHighwayLocator-$env:RELEASE_TAG-windows-x64.exe"
           Copy-Item bin/qinghaihighwaylocator.exe "bin/$assetName"
-          "RELEASE_ASSET=bin/$assetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $cliAssetName = "omap-import-$env:RELEASE_TAG-windows-x64.exe"
+          Copy-Item bin/omap-import.exe "bin/$cliAssetName"
+          "GUI_RELEASE_ASSET=bin/$assetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CLI_RELEASE_ASSET=bin/$cliAssetName" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: QinghaiHighwayLocator-${{ env.RELEASE_TAG }}-windows-x64
-          path: QinghaiHighwayLocator/${{ env.RELEASE_ASSET }}
+          path: |
+            QinghaiHighwayLocator/${{ env.GUI_RELEASE_ASSET }}
+            QinghaiHighwayLocator/${{ env.CLI_RELEASE_ASSET }}
           if-no-files-found: error
 
       - name: Create GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create $env:RELEASE_TAG $env:RELEASE_ASSET --title $env:RELEASE_TAG --generate-notes
+        run: gh release create $env:RELEASE_TAG $env:GUI_RELEASE_ASSET $env:CLI_RELEASE_ASSET --title $env:RELEASE_TAG --generate-notes
